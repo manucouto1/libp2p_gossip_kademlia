@@ -39,6 +39,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     peer.run("chat_room".to_string());
 
+    peer.get_closest_peers().await;
+
     loop {
         select! {
             Ok(Some(line)) = stdin.next_line() => {

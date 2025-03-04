@@ -30,10 +30,6 @@ fn generate_ed25519(secret_key_seed: u8) -> identity::Keypair {
 #[derive(Debug, Parser)]
 #[clap(name = "libp2p relay")]
 struct Opt {
-    /// Determine if the relay listen on ipv6 or ipv4 loopback address. the default is ipv4
-    #[clap(long)]
-    use_ipv6: Option<bool>,
-
     /// Fixed value to generate deterministic peer id
     #[clap(long)]
     secret_key_seed: u8,
@@ -98,11 +94,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 info: identify::Info { listen_addrs, .. },
                 ..
             })) => {
-                for addr in listen_addrs {
-                    swarm.behaviour_mut().kademlia.add_address(&peer_id, addr);
-                }
-                if let Err(e) = swarm.behaviour_mut().kademlia.bootstrap() {
-                    tracing::error!("Failed to bootstrap Kademlia: {:?}", e);
+                if peer_id != swarm.local_peer_id().clone() {
+                    for addr in listen_addrs {
+                        swarm.behaviour_mut().kademlia.add_address(&peer_id, addr);
+                    }
                 }
             }
             SwarmEvent::Behaviour(BehaviourEvent::Kademlia(kad::Event::RoutingUpdated {
@@ -111,6 +106,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             })) => {
                 tracing::info!("Kademlia routing updated for peer: {}", peer);
             }
+
             SwarmEvent::Behaviour(BehaviourEvent::Kademlia(
                 kad::Event::OutboundQueryProgressed {
                     result: kad::QueryResult::Bootstrap(Err(e)),

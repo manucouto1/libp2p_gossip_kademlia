@@ -136,6 +136,7 @@ impl Peer {
             peer_id,
             relay_peer_id,
             relay_address,
+
             swarm: Arc::new(Mutex::new(swarm)), //Arc<RwLock<Swarm<Behaviour>>>
             message_sender: Arc::new(Mutex::new(message_sender)),
             message_receiver: Arc::new(Mutex::new(message_receiver)),
@@ -146,8 +147,8 @@ impl Peer {
         let topic = gossipsub::IdentTopic::new(topic);
         let swarm = Arc::clone(&self.swarm);
         let message_receiver = Arc::clone(&self.message_receiver);
-        let relay_address = self.relay_address.clone();
-        let _relay_peer_id = self.relay_peer_id.clone();
+        let _relay_address = self.relay_address.clone();
+        let relay_peer_id = self.relay_peer_id.clone();
         let self_peer_id = self.peer_id.clone();
         let mut interval = interval(Duration::from_secs(30));
 
@@ -168,17 +169,18 @@ impl Peer {
 
                 select! {
                     _ = interval.tick() => {
-                        tracing::info!("Trying to dial relay: {:?}", relay_address);
-                        locked_swarm.dial(relay_address.clone()).unwrap();
-                        tracing::info!("Relay dialed!");
+                        // tracing::info!("Trying to dial relay: {:?}", relay_address);
+                        // locked_swarm.dial(relay_address.clone()).unwrap();
+                        // tracing::info!("Relay dialed!");
 
-                        locked_swarm
-                            .listen_on(relay_address.clone().with(Protocol::P2pCircuit))
-                            .unwrap();
-                        let gossip_peers = locked_swarm.behaviour().gossipsub.mesh_peers(&topic.hash());
-                        for peer in gossip_peers {
-                            tracing::info!("Discovered peer: {:?}", peer);
-                        }
+                        // locked_swarm
+                        //     .listen_on(relay_address.clone().with(Protocol::P2pCircuit))
+                        //     .unwrap();
+
+                        // let gossip_peers = locked_swarm.behaviour().gossipsub.mesh_peers(&topic.hash());
+                        // for peer in gossip_peers {
+                        //     tracing::info!("Discovered peer: {:?}", peer);
+                        // }
                     }
                     message = locked_message_receiver.next() => {
                         match message {
@@ -200,6 +202,18 @@ impl Peer {
                         }
                     },
                     event = locked_swarm.select_next_some() => match event {
+                        SwarmEvent::Behaviour(BehaviourEvent::Identify(identify::Event::Received {
+                            peer_id,
+                            info: identify::Info { listen_addrs, .. },
+                            ..
+                        })) => {
+                            for addr in listen_addrs {
+                                locked_swarm.behaviour_mut().kademlia.add_address(&peer_id, addr);
+                            }
+                            if let Err(e) = locked_swarm.behaviour_mut().kademlia.bootstrap() {
+                                tracing::error!("Failed to bootstrap Kademlia: {:?}", e);
+                            }
+                        }
                         SwarmEvent::Behaviour(BehaviourEvent::Gossipsub(
                             gossip_event
                         )) => {
@@ -227,33 +241,34 @@ impl Peer {
                         }
                         SwarmEvent::Behaviour(BehaviourEvent::Kademlia(kad_event)) =>  {
                             match kad_event {
-                                kad::Event::RoutingUpdated { peer, .. } => {
-                                    tracing::info!("Kademlia: Routing table updated for peer: {:?}", peer);
-                                }
+                                // kad::Event::RoutingUpdated { peer, .. } => {
+                                //     tracing::info!("Kademlia: Routing table updated for peer: {:?}", peer);
+                                // }
                                 kad::Event::OutboundQueryProgressed { result, .. } => {
                                     match result {
                                         kad::QueryResult::GetClosestPeers(Ok(ok)) => {
                                             tracing::info!("Kademlia: Found closest peers");
                                             for peer in ok.peers {
-                                                tracing::info!("Discovered peer: {:?}", peer);
-                                                locked_swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer.peer_id);
+                                                if peer.peer_id!= self_peer_id && peer.peer_id!= relay_peer_id {
+                                                    tracing::info!("Discovered peer: {:?}", peer);
+                                                }
+                                                // locked_swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer.peer_id);
                                             }
                                         }
                                         kad::QueryResult::Bootstrap(Ok(BootstrapOk { peer, num_remaining: _ })) => {
-                                            tracing::info!("Kademlia: Bootstrap query completed");
-                                            tracing::info!("Bootstrapped with peer: {:?}", peer);
-                                            if peer != self_peer_id {
-                                                locked_swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer);
+                                            if peer != self_peer_id && peer != relay_peer_id{
+                                                tracing::info!("Bootstrapped with peer: {:?}", peer);
+                                                // locked_swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer);
                                             }
                                         }
                                         _ => {}
                                     }
                                 }
 
-                                _ => {tracing::info!("Outbound query progress: {:?}", kad_event); }
+                                _ => {}
                             }
                         }
-                        e => { tracing::info!("Swarm Event: {e:?}"  )}
+                        _ => { }
                     }
 
                 }
@@ -267,6 +282,15 @@ impl Peer {
             .await
             .unbounded_send(message)
             .expect("Failed to send message");
+    }
+
+    pub async fn get_closest_peers(&self) {
+        Arc::clone(&self.swarm)
+            .lock()
+            .await
+            .behaviour_mut()
+            .kademlia
+            .get_closest_peers(self.peer_id);
     }
 }
 
