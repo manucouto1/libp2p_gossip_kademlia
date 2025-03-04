@@ -1,0 +1,60 @@
+services:
+  relay:
+    build: ./relay
+    networks:
+      public_net:
+        ipv4_address: 172.20.0.100 # IP estática "pública"
+    volumes:
+      - ./relay:/usr/src/app
+    ports:
+      - "4000:4000/tcp"
+      - "4000:4000/udp"
+    # command: --secret-key-seed 1 --port 4000
+    command: tail -f /dev/null
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+
+  peer1:
+    build: ./peer
+    networks:
+      public_net:
+      private_net1:
+        ipv4_address: 10.1.0.101
+    volumes:
+      - ./peer:/usr/src/app
+    command: tail -f /dev/null
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+
+  peer2:
+    build: ./peer
+
+    networks:
+      public_net:
+      private_net2:
+        ipv4_address: 10.2.0.102
+    volumes:
+      - ./peer:/usr/src/app
+    command: tail -f /dev/null
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+
+networks:
+  public_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24
+  private_net1:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.1.0.0/24
+  private_net2:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.2.0.0/24
