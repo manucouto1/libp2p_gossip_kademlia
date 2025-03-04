@@ -81,7 +81,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .build();
 
     swarm.behaviour_mut().kademlia.set_mode(Some(Mode::Server));
-    swarm.listen_on("/p2p-circuit".parse().unwrap())?;
 
     // También en TCP y QUIC
     let listen_addr_tcp = Multiaddr::empty()
