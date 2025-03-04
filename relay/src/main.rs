@@ -1,7 +1,4 @@
-use std::{
-    error::Error,
-    net::{Ipv4Addr, Ipv6Addr},
-};
+use std::{error::Error, net::Ipv4Addr};
 
 use clap::Parser;
 use futures::StreamExt;
