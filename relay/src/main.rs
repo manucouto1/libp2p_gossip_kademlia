@@ -85,13 +85,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // También en TCP y QUIC
     let listen_addr_tcp = Multiaddr::empty()
         .with(Protocol::Ip4(Ipv4Addr::UNSPECIFIED))
-        .with(Protocol::Ip6(Ipv6Addr::UNSPECIFIED))
         .with(Protocol::Tcp(opt.port));
     swarm.listen_on(listen_addr_tcp)?;
 
     let listen_addr_quic = Multiaddr::empty()
         .with(Protocol::Ip4(Ipv4Addr::UNSPECIFIED))
-        .with(Protocol::Ip6(Ipv6Addr::UNSPECIFIED))
         .with(Protocol::Udp(opt.port))
         .with(Protocol::QuicV1);
     swarm.listen_on(listen_addr_quic)?;
