@@ -1,7 +1,9 @@
 use std::error::Error;
 
 use clap::Parser;
+use dotenv::dotenv;
 use peer::Peer;
+use std::env;
 use tokio::{io, io::AsyncBufReadExt, select};
 use tracing_subscriber::EnvFilter;
 
@@ -15,21 +17,25 @@ struct Opts {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    dotenv().ok();
     let _ = tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
         .try_init();
 
+    let relay_host = env::var("RELAY_HOST").expect("RELAY_HOST no está definido en .env");
+    let relay_port = env::var("RELAY_PORT").expect("RELAY_PORT no está definido en .env");
+    let relay_peer_id = env::var("RELAY_PEER_ID").expect("RELAY_PEER_ID no está definido en .env");
+
+    let relay_address = format!(
+        "/ip4/{}/tcp/{}/p2p/{}",
+        relay_host, relay_port, relay_peer_id
+    );
     let opts = Opts::parse();
 
     let mut stdin = io::BufReader::new(io::stdin()).lines();
-    let mut peer = Peer::new(
-        opts.secret_key_seed,
-        "/ip4/172.20.0.100/tcp/4000/p2p/12D3KooWR2KSRQWyanR1dPvnZkXt296xgf3FFn8135szya3zYYwY"
-            .parse()
-            .unwrap(),
-    )
-    .await
-    .unwrap();
+    let mut peer = Peer::new(opts.secret_key_seed, relay_address.parse().unwrap())
+        .await
+        .unwrap();
 
     peer.run("chat_room".to_string());
 

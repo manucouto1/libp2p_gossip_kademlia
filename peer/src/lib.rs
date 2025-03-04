@@ -3,20 +3,21 @@ use futures::{StreamExt, channel::mpsc};
 use libp2p::{
     PeerId, Swarm,
     core::multiaddr::Multiaddr,
-    gossipsub, identify, identity,
+    dcutr, gossipsub, identify, identity,
     kad::{self, BootstrapOk, Mode, store::MemoryStore},
     multiaddr::Protocol,
     noise, ping, relay,
     swarm::{NetworkBehaviour, SwarmEvent},
     tcp, yamux,
 };
+use std::time::{SystemTime, UNIX_EPOCH};
 use std::{
     hash::{DefaultHasher, Hash, Hasher},
     sync::Arc,
     time::Duration,
 };
+use tokio::task;
 use tokio::{select, sync::Mutex, time::interval};
-use tokio::{task, time::sleep};
 
 #[derive(NetworkBehaviour)]
 struct Behaviour {
@@ -25,6 +26,7 @@ struct Behaviour {
     identify: identify::Behaviour,
     gossipsub: gossipsub::Behaviour,
     kademlia: kad::Behaviour<MemoryStore>,
+    dcutr: dcutr::Behaviour,
 }
 #[derive(Clone)]
 pub enum PeerEvent {
@@ -54,7 +56,11 @@ impl Peer {
             .validation_mode(gossipsub::ValidationMode::Permissive)
             .message_id_fn(|message: &gossipsub::Message| {
                 let mut s = DefaultHasher::new();
-                message.data.hash(&mut s);
+                let now = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos();
+                (message.data.clone(), now).hash(&mut s);
                 gossipsub::MessageId::from(s.finish().to_string())
             })
             .build()
@@ -73,7 +79,6 @@ impl Peer {
                 yamux::Config::default,
             )?
             .with_quic()
-            .with_dns()?
             .with_relay_client(noise::Config::new, yamux::Config::default)?
             .with_behaviour(|keypair, relay_behaviour| Behaviour {
                 kademlia: kad::Behaviour::new(
@@ -87,6 +92,7 @@ impl Peer {
                     "/TODO/0.0.1".to_string(),
                     keypair.public(),
                 )),
+                dcutr: dcutr::Behaviour::new(keypair.public().to_peer_id()),
             })?
             .build();
 
@@ -126,8 +132,6 @@ impl Peer {
             .listen_on(relay_address.clone().with(Protocol::P2pCircuit))
             .unwrap();
 
-        sleep(Duration::from_secs(10)).await;
-
         Ok(Peer {
             peer_id,
             relay_peer_id,
@@ -142,7 +146,7 @@ impl Peer {
         let topic = gossipsub::IdentTopic::new(topic);
         let swarm = Arc::clone(&self.swarm);
         let message_receiver = Arc::clone(&self.message_receiver);
-        let _relay_addres = self.relay_address.clone();
+        let relay_address = self.relay_address.clone();
         let _relay_peer_id = self.relay_peer_id.clone();
         let self_peer_id = self.peer_id.clone();
         let mut interval = interval(Duration::from_secs(30));
@@ -164,11 +168,17 @@ impl Peer {
 
                 select! {
                     _ = interval.tick() => {
+                        tracing::info!("Trying to dial relay: {:?}", relay_address);
+                        locked_swarm.dial(relay_address.clone()).unwrap();
+                        tracing::info!("Relay dialed!");
+
+                        locked_swarm
+                            .listen_on(relay_address.clone().with(Protocol::P2pCircuit))
+                            .unwrap();
                         let gossip_peers = locked_swarm.behaviour().gossipsub.mesh_peers(&topic.hash());
                         for peer in gossip_peers {
                             tracing::info!("Discovered peer: {:?}", peer);
                         }
-
                     }
                     message = locked_message_receiver.next() => {
                         match message {
@@ -243,7 +253,7 @@ impl Peer {
                                 _ => {tracing::info!("Outbound query progress: {:?}", kad_event); }
                             }
                         }
-                        _ => {}
+                        e => { tracing::info!("Swarm Event: {e:?}"  )}
                     }
 
                 }

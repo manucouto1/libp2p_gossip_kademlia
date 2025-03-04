@@ -81,89 +81,23 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .build();
 
     swarm.behaviour_mut().kademlia.set_mode(Some(Mode::Server));
+    swarm.listen_on("/p2p-circuit".parse().unwrap())?;
 
-    // Listen on all interfaces
+    // También en TCP y QUIC
     let listen_addr_tcp = Multiaddr::empty()
-        .with(match opt.use_ipv6 {
-            Some(true) => Protocol::from(Ipv6Addr::UNSPECIFIED),
-            _ => Protocol::from(Ipv4Addr::UNSPECIFIED),
-        })
+        .with(Protocol::Ip4(Ipv4Addr::UNSPECIFIED))
+        .with(Protocol::Ip6(Ipv6Addr::UNSPECIFIED))
         .with(Protocol::Tcp(opt.port));
     swarm.listen_on(listen_addr_tcp)?;
 
     let listen_addr_quic = Multiaddr::empty()
-        .with(match opt.use_ipv6 {
-            Some(true) => Protocol::from(Ipv6Addr::UNSPECIFIED),
-            _ => Protocol::from(Ipv4Addr::UNSPECIFIED),
-        })
+        .with(Protocol::Ip4(Ipv4Addr::UNSPECIFIED))
+        .with(Protocol::Ip6(Ipv6Addr::UNSPECIFIED))
         .with(Protocol::Udp(opt.port))
         .with(Protocol::QuicV1);
-
     swarm.listen_on(listen_addr_quic)?;
 
     loop {
-        //     match swarm.next().await.expect("Infinite Stream.") {
-        //         SwarmEvent::Behaviour(event) => {
-        //             match event {
-        //                 BehaviourEvent::Identify(identify::Event::Received {
-        //                     peer_id,
-        //                     info:
-        //                         identify::Info {
-        //                             observed_addr,
-        //                             listen_addrs,
-        //                             ..
-        //                         },
-        //                     ..
-        //                 }) => {
-        //                     swarm.add_external_address(observed_addr.clone());
-        //                     // Añadir todas las direcciones conocidas del peer a Kademlia
-        //                     for addr in listen_addrs
-        //                         .into_iter()
-        //                         .chain(std::iter::once(observed_addr))
-        //                     {
-        //                         swarm.behaviour_mut().kademlia.add_address(&peer_id, addr);
-        //                     }
-        //                     // Iniciar un bootstrap de Kademlia para este peer
-        //                     if let Err(e) = swarm.behaviour_mut().kademlia.bootstrap() {
-        //                         tracing::error!("Failed to bootstrap Kademlia: {:?}", e);
-        //                     } else {
-        //                         tracing::info!("Identified peer: {}", peer_id);
-        //                     }
-        //                 }
-        //                 BehaviourEvent::Relay(relay::Event::ReservationReqAccepted {
-        //                     src_peer_id,
-        //                     ..
-        //                 }) => {
-        //                     tracing::info!("Relay reservation accepted for peer: {}", src_peer_id);
-        //                 }
-        //                 BehaviourEvent::Kademlia(kad::Event::RoutingUpdated { peer, .. }) => {
-        //                     tracing::info!("Kademlia routing updated for peer: {}", peer);
-        //                 }
-        //                 BehaviourEvent::Kademlia(kad::Event::OutboundQueryProgressed {
-        //                     result,
-        //                     ..
-        //                 }) => match result {
-        //                     kad::QueryResult::Bootstrap(Ok(e)) => {
-        //                         println!("Kademlia bootstrap successful > {e:?}");
-        //                     }
-        //                     kad::QueryResult::Bootstrap(Err(e)) => {
-        //                         eprintln!("Kademlia bootstrap error: {:?}", e);
-        //                     }
-        //                     _ => {}
-        //                 },
-        //                 _ => tracing::info!("Not processed > {event:?}"),
-        //             }
-        //         }
-        //         SwarmEvent::ConnectionEstablished { peer_id, .. } => {
-        //             tracing::info!("Connection established with peer: {}", peer_id);
-        //             // Añadir el peer a Kademlia cuando se establece una conexión
-        //         }
-        //         SwarmEvent::NewListenAddr { address, .. } => {
-        //             tracing::info!("Listening on {address:?}");
-        //         }
-        //         _ => {}
-        //     }
-        // }
         match swarm.next().await.expect("Infinite Stream.") {
             SwarmEvent::Behaviour(BehaviourEvent::Identify(identify::Event::Received {
                 peer_id,
