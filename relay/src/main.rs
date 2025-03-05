@@ -51,6 +51,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     tracing::info!("Local peer ID: {:?}", local_key.public().to_peer_id());
 
+    let mut kad_behaviour = kad::Behaviour::with_config(
+        local_key.public().to_peer_id(),
+        MemoryStore::new(local_key.public().to_peer_id()),
+        kad::Config::default(),
+    );
+
+    kad_behaviour.set_mode(Some(Mode::Server));
+
     let mut swarm = libp2p::SwarmBuilder::with_existing_identity(local_key)
         .with_tokio()
         .with_tcp(
@@ -66,14 +74,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 "/TODO/0.0.1".to_string(),
                 key.public(),
             )),
-            kademlia: kad::Behaviour::new(
-                key.public().to_peer_id(),
-                MemoryStore::new(key.public().to_peer_id()),
-            ),
+            // kademlia: kad::Behaviour::new(
+            //     key.public().to_peer_id(),
+            //     MemoryStore::new(key.public().to_peer_id()),
+            // ),
+            kademlia: kad_behaviour,
         })?
         .build();
-
-    swarm.behaviour_mut().kademlia.set_mode(Some(Mode::Server));
 
     // También en TCP y QUIC
     let listen_addr_tcp = Multiaddr::empty()

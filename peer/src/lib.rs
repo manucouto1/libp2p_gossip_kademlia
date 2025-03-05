@@ -118,19 +118,23 @@ impl Peer {
             .expect("Failed to bootstrap Kademlia");
 
         swarm
-            .listen_on("/ip4/0.0.0.0/udp/0/quic-v1".parse().unwrap())
+            .listen_on("/ip4/0.0.0.0/udp/7777/quic-v1".parse().unwrap())
             .unwrap();
         swarm
-            .listen_on("/ip4/0.0.0.0/tcp/0".parse().unwrap())
+            .listen_on("/ip4/0.0.0.0/tcp/9999".parse().unwrap())
             .unwrap();
 
         tracing::info!("Trying to dial relay: {:?}", relay_address);
-        swarm.dial(relay_address.clone()).unwrap();
-        tracing::info!("Relay dialed!");
 
-        swarm
-            .listen_on(relay_address.clone().with(Protocol::P2pCircuit))
-            .unwrap();
+        match swarm.dial(relay_address.clone()) {
+            Ok(_) => tracing::info!("Successfully dialed relay"),
+            Err(e) => tracing::error!("Error connecting to relay: {:?}", e),
+        }
+
+        match swarm.listen_on(relay_address.clone().with(Protocol::P2pCircuit)) {
+            Ok(_) => tracing::info!("Listening on relay address: {:?}", relay_address),
+            Err(e) => tracing::error!("Error listening on relay address: {:?}", e),
+        }
 
         Ok(Peer {
             peer_id,
@@ -150,7 +154,7 @@ impl Peer {
         let _relay_address = self.relay_address.clone();
         let relay_peer_id = self.relay_peer_id.clone();
         let self_peer_id = self.peer_id.clone();
-        let mut interval = interval(Duration::from_secs(30));
+        let mut interval = interval(Duration::from_secs(60));
 
         task::spawn(async move {
             swarm
@@ -181,6 +185,11 @@ impl Peer {
                         // for peer in gossip_peers {
                         //     tracing::info!("Discovered peer: {:?}", peer);
                         // }
+                        match locked_swarm.behaviour_mut().kademlia.bootstrap() {
+                            Ok(query_id) => println!("Bootstrap iniciado, QueryId: {:?}", query_id),
+                            Err(err) => println!("Bootstrap fallido: {:?}", err),
+                        }
+
                     }
                     message = locked_message_receiver.next() => {
                         match message {
@@ -207,9 +216,17 @@ impl Peer {
                             info: identify::Info { listen_addrs, .. },
                             ..
                         })) => {
+                            tracing::info!(" Identified: {peer_id}");
                             for addr in listen_addrs {
                                 locked_swarm.behaviour_mut().kademlia.add_address(&peer_id, addr);
                             }
+                            for bucket in locked_swarm.behaviour_mut().kademlia.kbuckets() {
+                                // Recorremos las entradas del bucket.
+                                for entry in bucket.iter() {
+                                    tracing::info!("  Bucket Peer: {:?} => status: {:?}", entry.node.key.preimage(), entry.status);
+                                }
+                            }
+
                             if let Err(e) = locked_swarm.behaviour_mut().kademlia.bootstrap() {
                                 tracing::error!("Failed to bootstrap Kademlia: {:?}", e);
                             }
@@ -218,9 +235,10 @@ impl Peer {
                             gossip_event
                         )) => {
                             match gossip_event {
-                                gossipsub::Event::Message { message, .. } => {
+                                gossipsub::Event::Message { propagation_source, message, .. } => {
                                     tracing::info!(
-                                        "Mensaje recibido: {}",
+                                        " >< {} {}",
+                                        propagation_source,
                                         String::from_utf8_lossy(&message.data)
                                     )
                                 }
@@ -241,14 +259,14 @@ impl Peer {
                         }
                         SwarmEvent::Behaviour(BehaviourEvent::Kademlia(kad_event)) =>  {
                             match kad_event {
-                                // kad::Event::RoutingUpdated { peer, .. } => {
-                                //     tracing::info!("Kademlia: Routing table updated for peer: {:?}", peer);
-                                // }
+                                kad::Event::RoutingUpdated { peer, .. } => {
+                                    tracing::info!("Kademlia: Routing table updated for peer: {:?}", peer);
+                                }
                                 kad::Event::OutboundQueryProgressed { result, .. } => {
                                     match result {
                                         kad::QueryResult::GetClosestPeers(Ok(ok)) => {
-                                            tracing::info!("Kademlia: Found closest peers");
                                             for peer in ok.peers {
+                                                // tracing::info!("Discovered peer: {:?}", peer);
                                                 if peer.peer_id!= self_peer_id && peer.peer_id!= relay_peer_id {
                                                     tracing::info!("Discovered peer: {:?}", peer);
                                                 }
@@ -261,7 +279,7 @@ impl Peer {
                                                 // locked_swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer);
                                             }
                                         }
-                                        _ => {}
+                                        e => {tracing::info!("Kademlia event: {:?}", e);}
                                     }
                                 }
 
